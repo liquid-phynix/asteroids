@@ -1,0 +1,28 @@
+Name:                asteroids-clone
+Version:             0.1
+License:             BSD3
+Author:              mcstar
+Maintainer:          liquid.phynix@gmail.com
+Build-Type:          Simple
+Cabal-Version:       >=1.6
+Stability:           experimental
+Category:            Games
+Description:         
+	Simple Asteroids clone
+
+Synopsis:
+        Simple Asteroids clone
+
+Executable asteroids
+  Build-depends:
+        base == 4.*,
+        random == 1.0.*,
+        StateVar == 1.*,
+        colour == 2.3.*,
+        graphics-drawingcombinators == 1.4.*,
+        cond == 0.4.*,
+        GLFW-b == 0.1.*,
+        OpenGL == 2.5.*
+  Main-is: Main.hs
+  hs-source-dirs: .
+  ghc-options: -O2
