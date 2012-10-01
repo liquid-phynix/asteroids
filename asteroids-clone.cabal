@@ -26,3 +26,4 @@ Executable asteroids
   Main-is: Main.hs
   hs-source-dirs: .
   ghc-options: -O2
+  other-modules: Game
