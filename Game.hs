@@ -203,7 +203,7 @@ playGame = do
   True <- openWindow defaultDisplayOptions { displayOptions_width = windowWidth
                                            , displayOptions_height = windowHeight
                                            , displayOptions_windowIsResizable = False}
-  world <- initGame "/usr/share/fonts/TTF/comic.ttf"
+  world <- initGame "comic.ttf"
   loopRef <- newIORef True
   setWindowCloseCallback (modifyIORef loopRef not >> return True)
   setWindowTitle "Yet Another Asteroids Clone"
