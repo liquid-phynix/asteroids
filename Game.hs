@@ -7,8 +7,10 @@ import Control.Concurrent
 import Data.IORef
 import Data.StateVar
 import Graphics.UI.GLFW
-import Graphics.DrawingCombinators ((%%))
-import qualified Graphics.DrawingCombinators as D
+
+import Graphics.DrawingCombinators hiding (tint)
+import qualified Graphics.DrawingCombinators as Draw
+
 import qualified Graphics.Rendering.OpenGL.GL.Framebuffer as F
 import qualified Data.Colour.SRGB as C
 import qualified Data.Colour as C
@@ -16,146 +18,26 @@ import Data.Colour.Names
 import System.Random
 import Control.Conditional hiding (when)
 
-import Debug.Trace
+import Utils
+import Data
 
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
+-- data declarations
 
-type V2 = D.R2
-
-data Screen = WelcomeScreen | GameScreen
-
-data World = World { asteroids :: [Asteroid]
-                   , playerPos :: V2
-                   , playerRot :: D.R
-                   , playerAcc :: D.R
-                   , playerVel :: V2
-                   , text :: String 
-                   , font :: D.Font 
-                   , projectiles :: [Projectile] 
-                   , spaceWasPressed :: Bool
-                   , escWasPressed :: Bool 
-                   , asteroidsLot :: [Asteroid] 
-                   , background :: [V2] 
-                   , backdrop :: D.Sprite
-                   , explosion :: Maybe Explosion
-                   , explosionSprite :: D.Sprite 
-                   , shipSprite :: D.Sprite
-                   , shipThrustSprite :: D.Sprite 
-                   , projectileSprite :: D.Sprite
-                   , asterKindBig :: AsteroidKind
-                   , asterKindMid :: AsteroidKind
-                   , asterKindSml :: AsteroidKind 
-                   , screen :: Screen 
-                   , highestScore :: Maybe Int 
-                   , score :: Int 
-                   , loop :: Bool }
-
-data AsteroidKind = Big { asterSprite :: D.Sprite, asterRad :: D.R }
-                  | Mid { asterSprite :: D.Sprite, asterRad :: D.R }
-                  | Sml { asterSprite :: D.Sprite, asterRad :: D.R }
-                  | Null
-data Asteroid = Asteroid { asterPos :: V2
-                         , asterRot :: D.R
-                         , asterVel :: V2
-                         , asterRotVel :: D.R
-                         , asterKind :: AsteroidKind }
-                
-data Explosion = Explosion { exploSt :: D.R
-                           , exploDt :: D.R }
-
-makeAsteroids (a : b : c : d : e : f : g : rlist) =
-  let x = range (-1, 1) a
-      y = range (-1, 1) b
-      vx = range (-0.5, 0.5) d
-      vy = range (-0.5, 0.5) e
-      rotv = range (-1, 1) f
-      in Asteroid { asterPos = (x, y)
-                  , asterRot = 0
-                  , asterVel = (vx, vy)
-                  , asterRotVel = rotv 
-                  , asterKind = Null } : makeAsteroids rlist
-    where range (a, b) r = (b - a) * r + a
-
-data Projectile = Projectile { projPos :: V2
-                             , projVel :: V2
-                             , projBorn :: D.R 
-                             , projRot :: D.R }
-                  
-makeProjectile p rot t = Projectile p (cos rot, sin rot) t (rot)
-
-rand :: (D.R, D.R) -> IO D.R
-rand (a, b) = realToFrac <$> randomRIO ((realToFrac a, realToFrac b) :: (Double, Double))
-
-randi :: (Int, Int) -> IO Int
-randi = randomRIO
-
-tintA a c = let C.RGB r g b = C.toSRGB c in D.tint (D.Color r g b a)
-tint c = tintA 1 c
-
-norm (x, y) = sqrt (x ** 2.0 + y ** 2.0)
-
-fI = fromIntegral
-
-whenRef r a = do
-  b <- readIORef r
-  when b a
-  
-whenIO c a = do
-  b <- c
-  when b a  
-  
-screenToScene (w, h) (x, y) = ((x - mid_w) / mid_w, (- y + mid_h) / mid_h)
-  where mid_w = w / 2
-        mid_h = h / 2
-
-accel wh xy
-  | n < 0.3 = (0, 0)
-  | n > 1 = (relx / n, rely / n)
-  | otherwise =(relx, rely)
-  where rel@(relx, rely) = screenToScene wh xy
-        n = norm rel
-        
-getRTime = realToFrac <$> getTime
-
-wrap x
-  | x < -1 = wrap (x + 2)
-  | x > 1 = wrap (x - 2)
-  | otherwise = x
-
-wrapRad phi
-  | phi < 0 = phi + pi2
-  | phi > pi2 = phi - pi2
-  | otherwise = phi
-    where pi2 = 2 * pi
-                
-wrapV (x, y) = (wrap x, wrap y)
-
--- rotV phi (x, y) = (cp * x + sp * y, - sp * x + cp * y)
---   where cp = cos phi
---         sp = sin phi
-        
--- addV (x, y) (x', y') = (x + x', y + y')
--- minV (x, y) (x', y') = (x - x', y - y')
--- negateV (x, y) = (-x, -y)
-
-mconcatmap lst f = mconcat (map f lst)
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
-        
+windowWidth :: Int
+windowHeight :: Int
 windowWidth = 700
 windowHeight = 700
 
-initGame font_path = do
-  font' <- D.openFont font_path
+
+initGame :: IO World
+initGame = do
+  font' <- openFont "comic.ttf"
   stars <- replicateM 100 $ do
     x <- rand (-1, 1)
     y <- rand (-1, 1)
     return (x, y)
   g <- getStdGen
-  [bck, shp, shpThrust, proj, a_big, a_mid, a_sml, expl] <- mapM D.openSprite [ "backdrop.png", "ship.png", "ship_thrust.png", "projectile.png", "asteroid_big.png", "asteroid_mid.png", "asteroid_sml.png", "explosion.png" ]
+  [bck, shp, shpThrust, proj, a_big, a_mid, a_sml, expl] <- mapM openSprite [ "backdrop.png", "ship.png", "ship_thrust.png", "projectile.png", "asteroid_big.png", "asteroid_mid.png", "asteroid_sml.png", "explosion.png" ]
   return $ initWorld $ World { font = font' 
                              , asteroidsLot = makeAsteroids (map realToFrac (randoms g :: [Double])) 
                              , background = stars 
@@ -167,43 +49,17 @@ initGame font_path = do
                              , asterKindMid = Mid a_mid 1
                              , asterKindSml = Sml a_sml 0.4
                              , highestScore = Nothing 
-                             , explosionSprite = expl
-                             , playerPos = (0, 0)
-                             , playerRot = pi / 2
-                             , playerAcc = 0
-                             , playerVel = (0, 0)
-                             , asteroids = []
-                             , text = ""
-                             , projectiles = [] 
-                             , spaceWasPressed = False                 
-                             , escWasPressed = False
-                             , screen = WelcomeScreen 
-                             , score = 0 
-                             , loop = True 
-                             , explosion = Nothing }
+                             , explosionSprite = expl }
 
-initWorld world =  
-  world { playerPos = (0, 0)
-        , playerRot = pi / 2
-        , playerAcc = 0
-        , playerVel = (0, 0)
-        , asteroids = []
-        , text = ""
-        , projectiles = [] 
-        , spaceWasPressed = False                 
-        , escWasPressed = False
-        , screen = WelcomeScreen 
-        , score = 0 
-        , loop = True 
-        , explosion = Nothing }
+-- game entry point
 
-  
+playGame :: IO ()
 playGame = do
   True <- initialize
   True <- openWindow defaultDisplayOptions { displayOptions_width = windowWidth
                                            , displayOptions_height = windowHeight
                                            , displayOptions_windowIsResizable = False}
-  world <- initGame "comic.ttf"
+  world <- initGame
   loopRef <- newIORef True
   setWindowCloseCallback (modifyIORef loopRef not >> return True)
   setWindowTitle "Yet Another Asteroids Clone"
@@ -212,6 +68,9 @@ playGame = do
   gameLoop loopRef world t t
   terminate
 
+-- game control logic
+  
+gameLoop :: IORef Bool -> World -> D -> D -> IO ()
 gameLoop loopRef world old_gt old_rt = do
   whenRef loopRef $
     when (loop world) $ do
@@ -261,10 +120,9 @@ gameLoop loopRef world old_gt old_rt = do
         gameStateLogic w _ _  _             _        _     _      _    _     _     _     = w
           
 
+-- advancing time
 
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
-
+manageAsteroids :: World -> World
 manageAsteroids world
   | null (asteroids world) =
     world { asteroids = [ (head (asteroidsLot world)) { asterKind = (asterKindBig world) }
@@ -296,6 +154,7 @@ manageAsteroids world
           | collidesWith p a = resolveCollisions (a : fragment) remps remas (ps, as)
           | otherwise = resolveCollisions fragment remps (a : remas) (pss, as)
 
+advanceScene :: D -> D -> World -> World
 advanceScene t dt world' =
   let world = let world'' = (manageAsteroids world')
                   s = score world'' 
@@ -317,31 +176,28 @@ advanceScene t dt world' =
                     if norm > 1
                     then (vx' / norm, vy' / norm)
                     else (vx', vy')
-               , playerPos = (wrap $ x + dt * vx, wrap $ y + dt * vy)
+               , playerPos = wrapV (x + dt * vx, y + dt * vy)
                , asteroids = map advanceAsteroid (asteroids world)
                , projectiles = map advanceProjectile $ filter ((<1.5) . (t-) . projBorn) (projectiles world)
                , explosion = advanceExplosion t (explosion world) }
     _ -> world { asteroids = map rotateAsteroid (asteroids world) 
                , explosion = advanceExplosion t (explosion world) }
-      
-  where advanceAsteroid a = rotateAsteroid (a { asterPos = (wrap $ x + dt * vx, wrap $ y + dt * vy) })
+  where advanceAsteroid a = rotateAsteroid (a { asterPos = wrapV (x + dt * vx, y + dt * vy) })
           where (x, y) = asterPos a
                 (vx, vy) = asterVel a
-        rotateAsteroid a = a { asterRot = asterRot a + asterRotVel a * dt }
-        advanceProjectile p = p { projPos = (wrap $ x + dt * vx, wrap $ y + dt * vy) }
+        rotateAsteroid a = a { asterRot = wrapRad (asterRot a + asterRotVel a * dt) }
+        advanceProjectile p = p { projPos = wrapV (x + dt * vx, y + dt * vy) }
           where (x, y) = projPos p
                 (vx, vy) = projVel p
         advanceExplosion _ Nothing = Nothing
         advanceExplosion t (Just (Explosion st dt))
---          | trace ("dt: " ++ show dt) False = undefined
           | dt > 0.5 = Just (Explosion 0 0)
           | otherwise = Just (Explosion st (t - st))
         
   
+-- rendering
 
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
-
+renderLoop :: IORef Bool -> World -> D -> D -> IO ()
 renderLoop loopRef world old_gt old_rt = do
   t <- getRTime
   let draw = (t - old_rt) > 0.01876
@@ -350,62 +206,62 @@ renderLoop loopRef world old_gt old_rt = do
     F.clear [F.ColorBuffer]
     F.accum F.Mult 0.85
     F.accum F.Return 1.0
-    D.render (assembleScene world)
+    render (assembleScene world)
     swapBuffers
   sleep 0.001
   if draw
     then gameLoop loopRef world old_gt t
     else gameLoop loopRef world old_gt old_rt
 
+assembleScene :: World -> Image Any
 assembleScene world =
-  showExplosion $
+    showExplosion $
   textLayer $
   -- ship
-  (D.translate ppos
-   %% D.rotate phi
-   %% D.scale (1.38 * 0.05) 0.05
-   %% (D.sprite (shipSprite world)) <> (D.translate (0.2 - playerAcc world / 5, 0) %% D.sprite (shipThrustSprite world)))
+  (translate ppos
+   %% rotate phi
+   %% scale (1.38 * 0.05) 0.05
+   %% (sprite (shipSprite world)) <> (translate (0.2 - playerAcc world / 5, 0) %% sprite (shipThrustSprite world)))
   -- projectiles
   <> (mconcatmap (projectiles world) $ \p ->
-       D.translate (projPos p)
-       %% D.rotate (projRot p - pi / 2)
-       %% D.scale 0.01 0.01
-       %% D.sprite (projectileSprite world))
+       translate (projPos p)
+       %% rotate (projRot p - pi / 2)
+       %% scale 0.01 0.01
+       %% sprite (projectileSprite world))
   -- asteroids
   <> (mconcatmap (asteroids world) $ \a ->
-       D.translate (asterPos a)
-       %% D.scale (0.1 * (asterRad (asterKind a))) (0.1 * (asterRad (asterKind a)))
-       %% D.rotate (asterRot a)
-       %% D.sprite (asterSprite (asterKind a)))
+       translate (asterPos a)
+       %% scale (0.1 * (asterRad (asterKind a))) (0.1 * (asterRad (asterKind a)))
+       %% rotate (asterRot a)
+       %% sprite (asterSprite (asterKind a)))
   -- text
-  <> (mconcatmap (background world) $ \pos -> (tint white $ D.point pos))
-  <> (D.sprite (backdrop world))
+  <> (mconcatmap (background world) $ \pos -> (tint white $ point pos))
+  <> (sprite (backdrop world))
   where ppos = playerPos world
         phi = playerRot world
         h_score = case highestScore world of
           Just i -> "highest score: " ++ show i
           Nothing -> ""
         textLayer rest = case screen world of
+          GameScreen -> (tint red (showScore ("score: " ++ show (score world)) 0.03 (-0.95) 0.9)) <> rest
           WelcomeScreen -> (tint lightgreen (centered title 0.08 0.2))
                            <> (tint green (centered "press" 0.04 (-0.2)))
                            <> (tint green (centered "space to play" 0.04 (-0.3)))
                            <> (tint green (centered "esc to pause" 0.04 (-0.4)))
                            <> (tint green (centered "esc esc to quit" 0.04 (-0.5)))
                            <> (tint red (showScore h_score 0.03 (-0.95) 0.9))
-                           <> D.tint (D.Color 0.4 0.4 0.4 1) rest
-          GameScreen -> (tint red (showScore ("score: " ++ show (score world)) 0.03 (-0.95) 0.9)) <> rest
-        centered text scale y = D.translate (0, y)
-                                %% D.scale scale scale 
-                                %% D.translate (- (D.textWidth (font world) text) / 2, 0) 
-                                %% (D.text (font world) text)
-        showScore text scale x y = D.translate (x, y)
-                                   %% D.scale scale scale 
-                                   %% (D.text (font world) text)
+                           <> tint grey rest
+        centered txt sc y = translate (0, y)
+                            %% scale sc sc
+                            %% translate (- (textWidth (font world) txt) / 2, 0) 
+                            %% (text (font world) txt)
+        showScore txt sc x y = translate (x, y)
+                               %% scale sc sc 
+                               %% (text (font world) txt)
         showExplosion rest = case explosion world of
-          Just (Explosion st dt) -> (D.translate ppos
-                                     %% D.scale (0.3 * (sqrt dt + 0.1)) (0.3 * (sqrt dt + 0.1))
-                                     %% (D.sprite (explosionSprite world)))
---                                     %% tintA (1 - dt) white 
-                                    <> rest
           Nothing -> rest
+          Just (Explosion st dt) -> (translate ppos
+                                     %% scale (0.3 * (sqrt dt + 0.1)) (0.3 * (sqrt dt + 0.1))
+                                     %% (sprite (explosionSprite world)))
+                                    <> rest
         title = "Asteroids"

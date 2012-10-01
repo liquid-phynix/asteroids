@@ -25,5 +25,5 @@ Executable asteroids
         OpenGL == 2.5.*
   Main-is: Main.hs
   hs-source-dirs: .
-  ghc-options: -O2
-  other-modules: Game
+  ghc-options: -O2 -fno-warn-missing-fields
+  other-modules: Game, Utils, Data
