@@ -7,17 +7,15 @@ import Control.Concurrent
 import Data.IORef
 import Data.StateVar
 import Graphics.UI.GLFW
-
 import Graphics.DrawingCombinators hiding (tint)
 import qualified Graphics.DrawingCombinators as Draw
-
 import qualified Graphics.Rendering.OpenGL.GL.Framebuffer as F
 import qualified Data.Colour.SRGB as C
 import qualified Data.Colour as C
 import Data.Colour.Names
-import System.Random
-import Control.Conditional hiding (when)
-
+import System.Random (getStdGen, randoms)
+import Control.Conditional hiding (when, (|>))
+import qualified Data.List (sortBy)
 import Utils
 import Data
 
@@ -28,7 +26,6 @@ windowHeight :: Int
 windowWidth = 700
 windowHeight = 700
 
-
 initGame :: IO World
 initGame = do
   font' <- openFont "comic.ttf"
@@ -37,18 +34,25 @@ initGame = do
     y <- rand (-1, 1)
     return (x, y)
   g <- getStdGen
-  [bck, shp, shpThrust, proj, a_big, a_mid, a_sml, expl] <- mapM openSprite [ "backdrop.png", "ship.png", "ship_thrust.png", "projectile.png", "asteroid_big.png", "asteroid_mid.png", "asteroid_sml.png", "explosion.png" ]
-  return $ initWorld $ World { font = font' 
-                             , asteroidsLot = makeAsteroids (map realToFrac (randoms g :: [Double])) 
-                             , background = stars 
-                             , backdrop = bck 
+  [ bck, shp, shpThrust, proj, a_big, a_mid, a_sml, expl] <- mapM openSprite [ "backdrop.png"
+                                                                             , "ship.png"
+                                                                             , "ship_thrust.png"
+                                                                             , "projectile.png"
+                                                                             , "asteroid_big.png"
+                                                                             , "asteroid_mid.png"
+                                                                             , "asteroid_sml.png"
+                                                                             , "explosion.png" ]
+  return $ initWorld $ World { font = font'
+                             , asteroidsLot = makeAsteroids 0 (map realToFrac (randoms g :: [Double]))
+                             , background = stars
+                             , backdrop = bck
                              , shipSprite = shp
-                             , shipThrustSprite = shpThrust 
-                             , projectileSprite = proj 
+                             , shipThrustSprite = shpThrust
+                             , projectileSprite = proj
                              , asterKindBig = Big a_big 2
                              , asterKindMid = Mid a_mid 1
                              , asterKindSml = Sml a_sml 0.4
-                             , highestScore = Nothing 
+                             , highestScore = Nothing
                              , explosionSprite = expl }
 
 -- game entry point
@@ -72,53 +76,65 @@ playGame = do
   
 gameLoop :: IORef Bool -> World -> D -> D -> IO ()
 gameLoop loopRef world old_gt old_rt = do
-  whenRef loopRef $
-    when (loop world) $ do
+  loopref <- readIORef loopRef
+  when (loopref && loop world) $ do
       t <- getRTime
-      
-      let world' = let non_coll = filter (not . collidesWithPlayer (playerPos world)) (asteroids world)
-                   in if length non_coll /= length (asteroids world)
-                      then world { explosion = Just (Explosion t 0) 
-                                 , asteroids = non_coll }
-                      else world
-      
-      let world'' = case explosion world' of
-            Nothing -> world'
-            Just (Explosion st dt) -> if st == dt then initWorld world' else world'
-      
-      [space, esc, left, right, up] <- mapM keyIsPressed [ KeySpace, KeyEsc, KeyLeft, KeyRight, KeyUp ]
-      let world''' = gameStateLogic world'' t (t - old_gt) (screen world) (spaceWasPressed world) space (escWasPressed world) esc left right up
+      [space, esc, leftKey, rightKey, upKey] <- mapM keyIsPressed [ KeySpace, KeyEsc, KeyLeft, KeyRight, KeyUp ]      
       pollEvents
-      sleep 0.001
-      renderLoop loopRef (advanceScene t (t - old_gt) (world''' { spaceWasPressed = space, escWasPressed = esc })) t old_rt
+      sleep 0.001      
+      let dt = t - old_gt
+      let world' = world |> playerAsteroidCollision t |> checkExplosionEnd dt |> checkQuit esc |> welcomeToGame space |> gameToWelcome esc |> fire t space |> up dt upKey |> left dt leftKey |> right dt rightKey
+      renderLoop loopRef (advanceScene t dt world') t old_rt
+        -- renderLoop loopRef (advanceScene t dt (world' { spaceWasPressed = space
+        --                                             , escWasPressed = esc })) t old_rt
   where 
+        playerAsteroidCollision t w
+          | length no_coll /= length (asteroids w) = w { explosion = Just (Explosion t 0)
+                                                       , asteroids = asterSort no_coll }
+          | otherwise = w
+          where no_coll = filter (not . collidesWithPlayer (playerPos world)) (asteroids world)
+        checkExplosionEnd dt w = case explosion w of
+          Nothing -> w
+          Just (Explosion st dt) -> if st == dt then initWorld w else w
+        checkQuit True w = 
+          case screen w of
+            WelcomeScreen | not (escWasPressed w) -> w { loop = False
+                                                       , escWasPressed = True }
+            _ -> w
+        checkQuit False w = w { escWasPressed = False }
+        welcomeToGame True w =
+          case screen w of
+            WelcomeScreen | not (spaceWasPressed w) -> w { screen = GameScreen
+                                                         , spaceWasPressed = True }
+            _ -> w
+        welcomeToGame False w = w { spaceWasPressed = False }
+        gameToWelcome True w = 
+          case screen w of
+            GameScreen -> w { screen = WelcomeScreen 
+                            , escWasPressed = True }
+            _ -> w
+        gameToWelcome False w = w { escWasPressed = False }
+        fire t True w =
+          case screen w of
+            GameScreen | not (spaceWasPressed w) && length (projectiles w) < 5 -> 
+              w { projectiles = makeProjectile (playerPos w) (playerRot w) t : (projectiles w) 
+                , spaceWasPressed = True }
+            _ -> w
+        fire _ False w = w
+        up dt True w =
+          case screen w of
+            GameScreen -> if playerAcc w >= 1.0 then w { playerAcc = 1.0 }
+                          else w { playerAcc = playerAcc w + 10 * dt }
+            _ -> w
+        up dt False w = if playerAcc w <= 0.0 then w { playerAcc = 0.0 }
+                        else w { playerAcc = playerAcc w - 10 * dt }
+        left dt True w = w { playerRot = wrapRad (playerRot w + 4 * dt) }
+        left _ False w = w
+        right dt True w = w { playerRot = wrapRad (playerRot w - 4 * dt) }
+        right _ False w = w
         collidesWithPlayer (px, py) a = distance <= 0
           where (ax, ay) = asterPos a
                 distance = norm (px - ax, py - ay) - asterRad (asterKind a) / 10 - 0.04
---      gameStateLogic w t dt screen        spacewas space escwas esc  left  right up
-        gameStateLogic w t dt WelcomeScreen _        _     False  True _     _     _     = w { loop = False }
-        gameStateLogic w t dt WelcomeScreen _        _     True   True _     _     _     = w { escWasPressed = True }
-        
-        gameStateLogic w t dt WelcomeScreen False    True  _      e    _     _     _     = w { screen = GameScreen
-                                                                                             , spaceWasPressed = True 
-                                                                                             , escWasPressed = e }
-        gameStateLogic w t dt GameScreen    _        _     _      True _     _     _     = w { screen = WelcomeScreen }
-        gameStateLogic w t dt GameScreen    False    True  _      _    _     _     _
-          | length (projectiles w) < 5 = w { projectiles = makeProjectile (playerPos w) (playerRot w) t : (projectiles w) }
-          | otherwise = w
-        gameStateLogic w t dt GameScreen    _        _     _      _    l     r     up    =
-          let w' = if up 
-                   then if playerAcc w >= 1.0 then w { playerAcc = 1.0 }
-                        else w { playerAcc = playerAcc w + 10 * dt }
-                   else if playerAcc w <= 0.0 then w { playerAcc = 0.0 }
-                        else w { playerAcc = playerAcc w - 10 * dt }
-          in if l
-             then w' { playerRot = wrapRad $ playerRot w' + 4 * dt }
-             else if r
-                  then w' { playerRot = wrapRad $ playerRot w' - 4 * dt }
-                  else w'          
-        gameStateLogic w _ _  _             _        _     _      _    _     _     _     = w
-          
 
 -- advancing time
 
@@ -135,7 +151,7 @@ manageAsteroids world
                     let (from_fragments, new_lot) = fragmentAsteroid a lot
                     in (from_fragments ++ acc, new_lot))
             ([], asteroidsLot world) fs
-      in world { projectiles = ps, asteroids = as ++ from_fragments'
+      in world { projectiles = ps, asteroids = asterSort (as ++ from_fragments')
                , asteroidsLot = new_lot' 
                , score = score world + length fs }
   where fragmentAsteroid a lot = (map (\b -> b { asterPos = asterPos a
@@ -156,12 +172,7 @@ manageAsteroids world
 
 advanceScene :: D -> D -> World -> World
 advanceScene t dt world' =
-  let world = let world'' = (manageAsteroids world')
-                  s = score world'' 
-              in if s == 0 then world''
-                 else world'' { highestScore = case highestScore world'' of
-                                   Nothing -> Just s
-                                   Just hs -> Just (max hs s) }
+  let world = world' |> manageAsteroids |> checkScore
   in case screen world of
     GameScreen ->
       let a = playerAcc world
@@ -171,18 +182,23 @@ advanceScene t dt world' =
           (ax, ay) = (a * cos phi, a * sin phi)
           vx' = vx + dt * ax
           vy' = vy + dt * ay
-          norm = sqrt $ vx' * vx' + vy' * vy'
-      in world { playerVel =
-                    if norm > 1
-                    then (vx' / norm, vy' / norm)
-                    else (vx', vy')
+          norm' = norm (vx', vy')
+      in world { playerVel = if norm' > 1
+                             then (vx' / norm', vy' / norm')
+                             else (vx', vy')
                , playerPos = wrapV (x + dt * vx, y + dt * vy)
                , asteroids = map advanceAsteroid (asteroids world)
                , projectiles = map advanceProjectile $ filter ((<1.5) . (t-) . projBorn) (projectiles world)
                , explosion = advanceExplosion t (explosion world) }
     _ -> world { asteroids = map rotateAsteroid (asteroids world) 
                , explosion = advanceExplosion t (explosion world) }
-  where advanceAsteroid a = rotateAsteroid (a { asterPos = wrapV (x + dt * vx, y + dt * vy) })
+  where checkScore w
+          | s == 0 = w
+          | otherwise = w { highestScore = case highestScore w of
+                               Nothing -> Just s
+                               Just hs -> Just (max hs s) }
+          where s = score w
+        advanceAsteroid a = rotateAsteroid (a { asterPos = wrapV (x + dt * vx, y + dt * vy) })
           where (x, y) = asterPos a
                 (vx, vy) = asterVel a
         rotateAsteroid a = a { asterRot = wrapRad (asterRot a + asterRotVel a * dt) }

@@ -55,3 +55,7 @@ wrapV (x, y) = (wrap x, wrap y)
 
 mconcatmap :: [a] -> (a -> Draw.Image Draw.Any) -> Draw.Image Draw.Any
 mconcatmap lst f = mconcat (map f lst)
+
+infixl 6 |>
+(|>) :: a -> (a -> b) -> b
+a |> f = f a

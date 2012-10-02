@@ -2,6 +2,8 @@ module Data where
 
 import Utils
 import Graphics.DrawingCombinators
+import Data.List (sortBy)
+import Data.Function (on)
 
 data Screen = WelcomeScreen | GameScreen
 
@@ -39,7 +41,13 @@ data Asteroid = Asteroid { asterPos :: V2
                          , asterRot :: D
                          , asterVel :: V2
                          , asterRotVel :: D
-                         , asterKind :: AsteroidKind }
+                         , asterKind :: AsteroidKind 
+                         , serialNumber :: Int }
+
+-- instance Ord Asteroid where
+--   a1 > a2 = serialNumber a1 > serialNumber a2
+-- instance Eq Asteroid where
+--   a1 == a2 = serialNumber a1 == serialNumber a2
                 
 data Explosion = Explosion { exploSt :: R
                            , exploDt :: R }
@@ -51,8 +59,8 @@ data Projectile = Projectile { projPos :: V2
 
 -- some smart constructors
 
-makeAsteroids :: [D] -> [Asteroid]
-makeAsteroids (a : b : c : d : e : rlist) =
+makeAsteroids :: Int -> [D] -> [Asteroid]
+makeAsteroids n (a : b : c : d : e : rlist) =
   let x = range (-1, 1) a
       y = range (-1, 1) b
       vx = range (-0.5, 0.5) c
@@ -62,7 +70,8 @@ makeAsteroids (a : b : c : d : e : rlist) =
               , asterRot = 0
               , asterVel = (vx, vy)
               , asterRotVel = rotv 
-              , asterKind = Null } : makeAsteroids rlist
+              , serialNumber = n
+              , asterKind = Null } : makeAsteroids (n + 1) rlist
 
 makeProjectile :: V2 -> D -> D -> Projectile
 makeProjectile p rot t = Projectile p (cos rot, sin rot) t (rot)
@@ -81,3 +90,5 @@ initWorld world =
         , score = 0 
         , loop = True 
         , explosion = Nothing }
+
+asterSort = sortBy (compare `on` serialNumber)
