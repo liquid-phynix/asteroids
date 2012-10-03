@@ -5,7 +5,7 @@ import Graphics.DrawingCombinators
 import Data.List (sortBy)
 import Data.Function (on)
 
-data Screen = WelcomeScreen | GameScreen
+data Screen = WelcomeScreen | GameScreen deriving (Eq)
 
 data World = World { asteroids :: [Asteroid]
                    , playerPos :: V2

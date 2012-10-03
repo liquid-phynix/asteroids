@@ -19,8 +19,6 @@ import qualified Data.List (sortBy)
 import Utils
 import Data
 
--- data declarations
-
 windowWidth :: Int
 windowHeight :: Int
 windowWidth = 700
@@ -85,53 +83,34 @@ gameLoop loopRef world old_gt old_rt = do
       let dt = t - old_gt
       let world' = world |> playerAsteroidCollision t |> checkExplosionEnd dt |> checkQuit esc |> welcomeToGame space |> gameToWelcome esc |> fire t space |> up dt upKey |> left dt leftKey |> right dt rightKey
       renderLoop loopRef (advanceScene t dt world') t old_rt
-        -- renderLoop loopRef (advanceScene t dt (world' { spaceWasPressed = space
-        --                                             , escWasPressed = esc })) t old_rt
   where 
         playerAsteroidCollision t w
-          | length no_coll /= length (asteroids w) = w { explosion = Just (Explosion t 0)
-                                                       , asteroids = asterSort no_coll }
+          | length no_coll /= length (asteroids w) = w { explosion = Just (Explosion t 0), asteroids = asterSort no_coll }
           | otherwise = w
           where no_coll = filter (not . collidesWithPlayer (playerPos world)) (asteroids world)
         checkExplosionEnd dt w = case explosion w of
           Nothing -> w
           Just (Explosion st dt) -> if st == dt then initWorld w else w
-        checkQuit True w = 
-          case screen w of
-            WelcomeScreen | not (escWasPressed w) -> w { loop = False
-                                                       , escWasPressed = True }
-            _ -> w
+        checkQuit True w | screen w == WelcomeScreen && not (escWasPressed w) = w { loop = False, escWasPressed = True }
+                         | otherwise = w { escWasPressed = True }
         checkQuit False w = w { escWasPressed = False }
-        welcomeToGame True w =
-          case screen w of
-            WelcomeScreen | not (spaceWasPressed w) -> w { screen = GameScreen
-                                                         , spaceWasPressed = True }
-            _ -> w
+        welcomeToGame True w | screen w == WelcomeScreen && not (spaceWasPressed w) = w { screen = GameScreen, spaceWasPressed = True }
+                             | otherwise = w
         welcomeToGame False w = w { spaceWasPressed = False }
-        gameToWelcome True w = 
-          case screen w of
-            GameScreen -> w { screen = WelcomeScreen 
-                            , escWasPressed = True }
-            _ -> w
+        gameToWelcome True w | screen w == GameScreen = w { screen = WelcomeScreen, escWasPressed = True }
+                             | otherwise = w
         gameToWelcome False w = w { escWasPressed = False }
-        fire t True w =
-          case screen w of
-            GameScreen | not (spaceWasPressed w) && length (projectiles w) < 5 -> 
-              w { projectiles = makeProjectile (playerPos w) (playerRot w) t : (projectiles w) 
-                , spaceWasPressed = True }
-            _ -> w
-        fire _ False w = w
-        up dt True w =
-          case screen w of
-            GameScreen -> if playerAcc w >= 1.0 then w { playerAcc = 1.0 }
-                          else w { playerAcc = playerAcc w + 10 * dt }
-            _ -> w
-        up dt False w = if playerAcc w <= 0.0 then w { playerAcc = 0.0 }
+        fire t True w | screen w == GameScreen && not (spaceWasPressed w) && length (projectiles w) < 5 =
+          w { projectiles = makeProjectile (playerPos w) (playerRot w) t : (projectiles w), spaceWasPressed = True }
+        fire _ spw w = w { spaceWasPressed = spw }
+        up dt True w | screen w == GameScreen = if playerAcc w >= 1.0 then w { playerAcc = 1.0 }
+                                                else w { playerAcc = playerAcc w + 10 * dt }
+        up dt _ w = if playerAcc w <= 0.0 then w { playerAcc = 0.0 }
                         else w { playerAcc = playerAcc w - 10 * dt }
-        left dt True w = w { playerRot = wrapRad (playerRot w + 4 * dt) }
-        left _ False w = w
-        right dt True w = w { playerRot = wrapRad (playerRot w - 4 * dt) }
-        right _ False w = w
+        left dt True w | screen w == GameScreen = w { playerRot = wrapRad (playerRot w + 4 * dt) }
+        left _ _ w = w
+        right dt True w | screen w == GameScreen = w { playerRot = wrapRad (playerRot w - 4 * dt) }
+        right _ _ w = w
         collidesWithPlayer (px, py) a = distance <= 0
           where (ax, ay) = asterPos a
                 distance = norm (px - ax, py - ay) - asterRad (asterKind a) / 10 - 0.04
